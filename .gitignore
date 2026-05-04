@@ -1,10 +1,38 @@
 
+# Project-specific
 /testing.html
 /HTMLJSOutline.md
 /LPI.pyc
-.idea/*
 /css/.sass-cache
-*.gdoc
-*.zip
+
+# Generated LPF files and verification PDFs
+*.lpf
+*_verification.pdf
+
+# Python
 *.pyc
+__pycache__/
 *.ipynb_checkpoints
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+*.env
+.venv/
+venv/
+
+# IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip
+*.gdoc
+
+# Misc
+*.log
