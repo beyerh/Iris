@@ -8,21 +8,16 @@ duration, repeated at a fixed interval, over a total experiment time.
 Default: 1-second pulse every 10 minutes for 24 hours on all wells (channel 0).
 
 Usage:
-    python generate_pulse_lpf.py                   # uses defaults
-    python generate_pulse_lpf.py --help            # show all options
-    python generate_pulse_lpf.py --intensity 2000 --pulse_duration 2 --interval 5 --total_time 720
-
-All parameters are configurable via command-line arguments or by editing the
-CONFIGURATION section below.
+    1. Edit the CONFIGURATION section below.
+    2. Run:  python generate_pulse_lpf.py
 """
 
 import sys
 import os
-import argparse
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# CONFIGURATION — edit these defaults directly, or override via CLI arguments
+# CONFIGURATION — edit these values, then run the script
 # ---------------------------------------------------------------------------
 
 # Device geometry (standard 24-well LPA)
@@ -45,10 +40,17 @@ TOTAL_TIME_MIN = 1440        # Total experiment duration in minutes (1440 = 24h)
 #   [2000, 1000]   -> pulse red at 2000, green at 1000
 PULSE_INTENSITIES = [4095, 0]  # Greyscale units [0, 4095] per channel.
 
-# Which wells to pulse. Set to None to pulse ALL wells.
-# Otherwise provide a list of (row, col) tuples (0-indexed).
-# Example: [(0,0), (1,2)] would only pulse well A1 and well B3.
-ACTIVE_WELLS = None
+# Plate map: visual well selection.
+# 1 = active (pulsed), 0 = inactive (stays dark).
+# Rows = A-D (top to bottom), Columns = 1-6 (left to right).
+#
+#              1  2  3  4  5  6
+PLATE_MAP = [
+    [ 1, 1, 1, 1, 1, 1 ],   # A
+    [ 1, 1, 1, 1, 1, 1 ],   # B
+    [ 1, 1, 1, 1, 1, 1 ],   # C
+    [ 1, 1, 1, 1, 1, 1 ],   # D
+]
 
 # Time step for the LPF file in seconds.
 # 1 s allows 1-second resolution. Smaller values increase file size.
@@ -57,41 +59,37 @@ TIME_STEP_S = 1
 # Output filename
 OUTPUT_FILE = "program.lpf"
 
+# Generate a verification PDF alongside the LPF file.
+GENERATE_PDF = True
+
 # ---------------------------------------------------------------------------
 # END CONFIGURATION
 # ---------------------------------------------------------------------------
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Generate a pulsed-LED LPF file for the Tabor Lab LPA."
-    )
-    parser.add_argument("--rows", type=int, default=ROW_NUM,
-                        help=f"Number of plate rows (default: {ROW_NUM})")
-    parser.add_argument("--cols", type=int, default=COL_NUM,
-                        help=f"Number of plate columns (default: {COL_NUM})")
-    parser.add_argument("--leds_per_well", type=int, default=LEDS_PER_WELL,
-                        help=f"LEDs per well (default: {LEDS_PER_WELL})")
-    parser.add_argument("--intensities", type=int, nargs="+", default=PULSE_INTENSITIES,
-                        help=f"Pulse intensity per channel in GS 0-4095 (default: {PULSE_INTENSITIES})")
-    parser.add_argument("--pulse_duration", type=float, default=PULSE_DURATION_S,
-                        help=f"Pulse ON duration in seconds (default: {PULSE_DURATION_S})")
-    parser.add_argument("--interval", type=float, default=PULSE_INTERVAL_MIN,
-                        help=f"Interval between pulses in minutes (default: {PULSE_INTERVAL_MIN})")
-    parser.add_argument("--total_time", type=float, default=TOTAL_TIME_MIN,
-                        help=f"Total experiment time in minutes (default: {TOTAL_TIME_MIN})")
-    parser.add_argument("--timestep", type=float, default=TIME_STEP_S,
-                        help=f"LPF time step in seconds (default: {TIME_STEP_S})")
-    parser.add_argument("--output", type=str, default=OUTPUT_FILE,
-                        help=f"Output LPF filename (default: {OUTPUT_FILE})")
-    parser.add_argument("--no_plot", action="store_true",
-                        help="Skip PDF verification report generation")
-    return parser.parse_args()
+def plate_map_to_wells(plate_map):
+    """Convert a PLATE_MAP grid to a list of (row, col) tuples.
+    Returns None if all wells are active (equivalent to 'all')."""
+    rows = len(plate_map)
+    cols = len(plate_map[0]) if rows > 0 else 0
+    wells = []
+    for r in range(rows):
+        if len(plate_map[r]) != cols:
+            raise ValueError(f"PLATE_MAP row {r} has {len(plate_map[r])} columns, expected {cols}.")
+        for c in range(cols):
+            if plate_map[r][c]:
+                wells.append((r, c))
+    if len(wells) == rows * cols:
+        return None  # all wells active
+    if len(wells) == 0:
+        raise ValueError("PLATE_MAP has no active wells (all zeros).")
+    return wells
+
 
 
 def generate_pulse_lpf(rows, cols, leds_per_well, intensities, pulse_duration_s,
                        interval_min, total_time_min, timestep_s,
-                       active_wells, output_file, no_plot=False):
+                       active_wells, output_file, generate_pdf=True):
     """Build the intensity matrix and write the LPF file."""
 
     # Add the parent directory to path so we can import LPFEncoder
@@ -171,7 +169,7 @@ def generate_pulse_lpf(rows, cols, leds_per_well, intensities, pulse_duration_s,
     print(f"\n  SUCCESS: wrote '{output_file}' ({actual_size_mb:.1f} MB)")
 
     # Generate verification PDF
-    if not no_plot:
+    if generate_pdf:
         from verify_lpf import generate_verification_pdf
         pdf_path = os.path.splitext(output_file)[0] + "_verification.pdf"
         generate_verification_pdf(
@@ -190,19 +188,18 @@ def generate_pulse_lpf(rows, cols, leds_per_well, intensities, pulse_duration_s,
 
 
 def main():
-    args = parse_args()
     generate_pulse_lpf(
-        rows=args.rows,
-        cols=args.cols,
-        leds_per_well=args.leds_per_well,
-        intensities=args.intensities,
-        pulse_duration_s=args.pulse_duration,
-        interval_min=args.interval,
-        total_time_min=args.total_time,
-        timestep_s=args.timestep,
-        active_wells=ACTIVE_WELLS,
-        output_file=args.output,
-        no_plot=args.no_plot,
+        rows=ROW_NUM,
+        cols=COL_NUM,
+        leds_per_well=LEDS_PER_WELL,
+        intensities=PULSE_INTENSITIES,
+        pulse_duration_s=PULSE_DURATION_S,
+        interval_min=PULSE_INTERVAL_MIN,
+        total_time_min=TOTAL_TIME_MIN,
+        timestep_s=TIME_STEP_S,
+        active_wells=plate_map_to_wells(PLATE_MAP),
+        output_file=OUTPUT_FILE,
+        generate_pdf=GENERATE_PDF,
     )
 
 
